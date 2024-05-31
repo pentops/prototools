@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package test.baz.v1;
+
+import "google/protobuf/timestamp.proto";
+import "test/bar/v1/bar.proto";
+
+option go_package = "github.com/pentops/jsonapi/gen/test/baz/v1/baz_testpb";
+
+message Baz {
+  string field = 1;
+  test.bar.v1.Bar bar = 2;
+  repeated test.bar.v1.Bar bars = 3;
+
+  message Nested {
+    string field = 1;
+  }
+
+  Nested nested = 4;
+
+  test.bar.v1.BarEnum bar_enum = 5;
+
+  google.protobuf.Timestamp timestamp = 6;
+}
