@@ -1,0 +1,160 @@
+syntax = "proto3";
+
+package test.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "j5/ext/v1/annotations.proto";
+import "psm/list/v1/query.proto";
+
+option go_package = "github.com/pentops/jsonapi/gen/test/foo/v1/foo_testpb";
+
+service FooService {
+  rpc GetFoo(GetFooRequest) returns (GetFooResponse) {
+    option (google.api.http) = {get: "/test/v1/foo/{id}"};
+  }
+
+  // PostFoo Comment
+  rpc PostFoo(PostFooRequest) returns (PostFooResponse) {
+    option (google.api.http) = {
+      post: "/test/v1/foo"
+      body: "*"
+    };
+  }
+}
+
+// Leading GetFooRequest Comment
+message GetFooRequest { // Comment on message line
+  string id = 1;
+  int64 number = 2;
+
+  // Commant before numbers
+  repeated float numbers = 3; // Comment on field line
+
+  ABMessage ab = 4; // Commend on ab
+  string multiple_word = 5;
+
+  psm.list.v1.QueryRequest query = 100;
+}
+
+// Multi
+// Line
+// Comment
+message ABMessage {
+  string a = 1;
+  string b = 2;
+}
+
+// First Detached
+// Multiline Comment
+
+// Second Detached Comment
+
+// GetFooResponse Comment
+message GetFooResponse {
+  string id = 1;
+  string name = 2;
+  string field = 3;
+}
+
+message PostFooRequest {
+  string s_string = 1;
+  optional string o_string = 2;
+  repeated string r_string = 3;
+
+  float s_float = 4;
+  optional float o_float = 5;
+  repeated float r_float = 6;
+
+  google.protobuf.Timestamp ts = 7;
+  repeated google.protobuf.Timestamp r_ts = 8;
+
+  Bar s_bar = 9;
+  repeated Bar r_bars = 10;
+
+  Enum enum = 11;
+  repeated Enum r_enum = 12;
+
+  bytes s_bytes = 13;
+  repeated bytes r_bytes = 14;
+
+  map<string, string> map_string_string = 15;
+
+  oneof naked_oneof {
+    string oneof_string = 100;
+    Bar one_bar = 101;
+    float oneof_float = 102;
+    Enum oneof_enum = 103;
+  }
+
+  WrappedOneof wrapped_oneof = 16;
+
+  FlattenedMessage flattened = 17 [(j5.ext.v1.field).message.flatten = true];
+}
+
+message WrappedOneof {
+  option (j5.ext.v1.message).is_oneof_wrapper = true;
+
+  oneof type {
+    string oneof_string = 100;
+    Bar one_bar = 101;
+    float oneof_float = 102;
+    Enum oneof_enum = 103;
+  }
+}
+
+enum Enum {
+  ENUM_UNSPECIFIED = 0;
+  ENUM_VALUE1 = 1;
+  ENUM_VALUE2 = 2;
+}
+
+message Bar {
+  string id = 1;
+  string name = 2;
+  string field = 3;
+
+  message Nest1 {
+    string nest1_id = 1;
+
+    message Nest2 {
+      string nest2_id = 1;
+      Nenum nest2_enum = 2;
+    }
+  }
+
+  Nest1 nest1 = 4;
+
+  Nest1.Nest2 nest2 = 5;
+
+  enum Nenum {
+    NENUM_UNSPECIFIED = 0;
+    NENUM_VALUE1 = 1;
+    NENUM_VALUE2 = 2;
+  }
+
+  Nenum nenum = 6;
+}
+
+message PostFooResponse {
+  string id = 1;
+  string name = 2;
+  string field = 3;
+}
+
+service FooTopic {
+  rpc Foo(FooMessage) returns (google.protobuf.Empty) {}
+}
+
+message FooMessage {
+  string id = 1;
+  string name = 2;
+  string field = 3;
+
+  Bar.Nest1.Nest2 nest2 = 4;
+}
+
+message FlattenedMessage {
+  string field_from_flattened = 1;
+}
