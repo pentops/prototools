@@ -1,6 +1,8 @@
 package protoprint
 
 import (
+	"fmt"
+
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -28,10 +30,16 @@ func (se *sourceElements) add(d protoreflect.Descriptor) {
 		typeOrder = 0
 	}
 
+	sl := d.ParentFile().SourceLocations().ByDescriptor(d)
+	if sl.StartLine == 0 {
+		fmt.Printf("NO SOURCE for %s in %s\n", d.FullName(), d.ParentFile().Path())
+	} else {
+		fmt.Printf("SOURCE for %s in %s: %d %v\n", d.FullName(), d.ParentFile().Path(), sl.StartLine, sl.Path)
+	}
 	*se = append(*se, sourceElement{
 		typeOrder:      typeOrder,
 		descriptor:     d,
-		sourceLocation: d.ParentFile().SourceLocations().ByDescriptor(d),
+		sourceLocation: sl,
 	})
 }
 

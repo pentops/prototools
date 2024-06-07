@@ -91,6 +91,7 @@ func (fb *fileBuilder) printElements(elements sourceElements) error {
 			if err := fb.printField(et); err != nil {
 				return err
 			}
+			fb.addGap()
 
 		case protoreflect.EnumValueDescriptor:
 			if err := fb.printEnumValue(et); err != nil {
