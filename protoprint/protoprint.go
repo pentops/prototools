@@ -17,6 +17,7 @@ import (
 type Options struct {
 	PackagePrefixes []string
 	OnlyFilenames   []string
+	IgnoreFilenames []string
 }
 
 type FileWriter interface {
@@ -34,6 +35,10 @@ func PrintProtoFiles(ctx context.Context, out FileWriter, src *protosrc.ParsedSo
 		for _, file := range src.Files {
 			fileMap[*file.Name] = struct{}{}
 		}
+	}
+
+	for _, filename := range opts.IgnoreFilenames {
+		delete(fileMap, filename)
 	}
 
 	descriptors, err := protodesc.NewFiles(&descriptorpb.FileDescriptorSet{

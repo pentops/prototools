@@ -21,7 +21,9 @@ func main() {
 }
 
 func runFmt(ctx context.Context, cfg struct {
-	SourceDir string `flag:"dir" default:"."`
+	SourceDir   string   `flag:"dir" default:"."`
+	IgnoreFiles []string `flag:"ignore-files" optional:"true"`
+	OnlyFiles   []string `flag:"only-files" optional:"true"`
 }) error {
 	img, err := protosrc.ReadImageFromSourceDir(ctx, cfg.SourceDir)
 	if err != nil {
@@ -30,7 +32,10 @@ func runFmt(ctx context.Context, cfg struct {
 
 	fsOutput := NewLocalOutput(cfg.SourceDir)
 
-	err = protoprint.PrintProtoFiles(ctx, fsOutput, img, protoprint.Options{})
+	err = protoprint.PrintProtoFiles(ctx, fsOutput, img, protoprint.Options{
+		IgnoreFilenames: cfg.IgnoreFiles,
+		OnlyFilenames:   cfg.OnlyFiles,
+	})
 	if err != nil {
 		return fmt.Errorf("printing: %w", err)
 	}
