@@ -1,0 +1,276 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+
+	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	"github.com/pentops/protostate/gen/state/v1/psm_pb"
+	"github.com/pentops/prototools/protomod"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
+)
+
+type PSM struct {
+	name  string
+	event *Message
+	state *Message
+}
+
+type Message struct {
+	indexInParent int32
+	*descriptorpb.DescriptorProto
+}
+
+type PSMSet []*PSM
+
+func (psmSet *PSMSet) ForName(name string) *PSM {
+	for _, psm := range *psmSet {
+		if psm.name == name {
+			return psm
+		}
+	}
+	psm := &PSM{name: name}
+	*psmSet = append(*psmSet, psm)
+	return psm
+}
+
+func translateFile(file *descriptorpb.FileDescriptorProto) (*descriptorpb.FileDescriptorProto, error) {
+
+	mod := protomod.WalkFileDescriptor(file)
+
+	psmSet := PSMSet{}
+
+	for idx, message := range file.MessageType {
+		if message.Options == nil {
+			continue
+		}
+		wrappedMessage := &Message{
+			DescriptorProto: message,
+			indexInParent:   int32(idx),
+		}
+		for _, inin := range message.Options.UninterpretedOption {
+			return nil, fmt.Errorf("File: %s Message %s has unintr %x\n", file.GetName(), message.GetName(), inin)
+		}
+
+		if eventExt, ok := proto.GetExtension(message.Options, psm_pb.E_Event).(*psm_pb.OldPSMEvent); ok && eventExt != nil {
+			psm := psmSet.ForName(eventExt.Name)
+			if psm.event != nil {
+				return nil, fmt.Errorf("File: %s Event %s already exists\n", file.GetName(), eventExt.Name)
+			}
+			psm.event = wrappedMessage
+
+		}
+
+		if messageExt, ok := proto.GetExtension(message.Options, psm_pb.E_State).(*psm_pb.OldPSMState); ok && messageExt != nil {
+			psm := psmSet.ForName(messageExt.Name)
+			if psm.state != nil {
+				return nil, fmt.Errorf("File: %s State %s already exists\n", file.GetName(), messageExt.Name)
+			}
+			psm.state = wrappedMessage
+		}
+	}
+
+	if len(psmSet) == 0 {
+		return nil, nil
+	}
+
+	for _, psm := range psmSet {
+		if psm.event == nil {
+			return nil, fmt.Errorf("File: %s Event %s not found\n", file.GetName(), psm.name)
+		}
+		if psm.state == nil {
+			return nil, fmt.Errorf("File: %s State %s not found\n", file.GetName(), psm.name)
+		}
+
+		if err := reworkPSM(mod, psm); err != nil {
+			return nil, fmt.Errorf("File: %s Event %s %w", file.GetName(), psm.event.GetName(), err)
+		}
+	}
+	return mod.ToDescriptor(), nil
+}
+
+func reworkPSM(file *protomod.File, psm *PSM) error {
+	fmt.Printf("PSM %s\n", psm.name)
+	file.Import("psm/state/v1/metadata.proto")
+
+	eventMessage := file.MessageByName(*psm.event.Name)
+	if eventMessage == nil {
+		return fmt.Errorf("No Event Message")
+	}
+
+	stateMessage := file.MessageByName(*psm.state.Name)
+	if stateMessage == nil {
+		return fmt.Errorf("No State Message")
+	}
+
+	stateKeysInEvent := make([]*protomod.Field, 0, len(psm.state.Field))
+	miscEventFields := make([]*protomod.Field, 0, len(psm.state.Field))
+
+	var metadataField *protomod.Field
+	var eventField *protomod.Field
+	for _, field := range eventMessage.Fields() {
+		if ext, ok := proto.GetExtension(field.Descriptor.Options, psm_pb.E_EventField).(*psm_pb.OldEventField); ok && ext != nil {
+			if ext.StateKey {
+				stateKeysInEvent = append(stateKeysInEvent, field)
+			} else if ext.Metadata {
+				metadataField = field
+			} else if ext.EventType {
+				eventField = field
+			} else {
+				miscEventFields = append(miscEventFields, field)
+			}
+		}
+	}
+
+	if metadataField == nil {
+		return fmt.Errorf("No Metadata")
+	}
+
+	if eventField == nil {
+		return fmt.Errorf("No Event Type")
+	}
+
+	if len(stateKeysInEvent) == 0 {
+		return fmt.Errorf("No State Keys")
+	}
+
+	commonFieldMap := make(map[string]*protomod.Field)
+	for _, field := range stateKeysInEvent {
+		commonFieldMap[*field.Descriptor.Name] = field
+	}
+	for _, field := range miscEventFields {
+		commonFieldMap[*field.Descriptor.Name] = field
+	}
+
+	for key := range commonFieldMap {
+		fmt.Printf("Common Field %s\n", key)
+	}
+
+	var stateStatusField *protomod.Field
+	stateDataFields := make([]*protomod.Field, 0, len(stateMessage.Fields()))
+	stateKeyFields := make([]*protomod.Field, 0, len(stateMessage.Fields()))
+
+	for _, field := range stateMessage.Fields() {
+		if *field.Descriptor.Type == descriptorpb.FieldDescriptorProto_TYPE_ENUM {
+			stateStatusField = field
+			continue
+		}
+		if commonField, ok := commonFieldMap[*field.Descriptor.Name]; ok {
+			delete(commonFieldMap, *field.Descriptor.Name)
+			if *commonField.Descriptor.Type != *field.Descriptor.Type {
+				return fmt.Errorf("Field %s type mismatch %s != %s", *field.Descriptor.Name, *commonField.Descriptor.Type, *field.Descriptor.Type)
+			}
+			fmt.Printf("Common Field %s Matched\n", *field.Descriptor.Name)
+			stateKeyFields = append(stateKeyFields, field)
+			continue
+		}
+		stateDataFields = append(stateDataFields, field)
+	}
+
+	for _, field := range commonFieldMap {
+		return fmt.Errorf("Field %s not found in State", *field.Descriptor.Name)
+	}
+
+	rootName := strings.TrimSuffix(*psm.state.Name, "State")
+	keysName := rootName + "Keys"
+	dataName := rootName + "StateData"
+
+	proto.ClearExtension(eventMessage.Descriptor.Options, psm_pb.E_Event)
+	proto.ClearExtension(stateMessage.Descriptor.Options, psm_pb.E_State)
+
+	stateDataMessage := file.NewMessage(dataName, int(psm.state.indexInParent))
+
+	// Move the Data fields to Data
+	for _, field := range stateDataFields {
+		if field.Descriptor.GetName() == "created_at" || field.Descriptor.GetName() == "updated_at" {
+			stateMessage.RemoveField(field)
+		} else {
+			stateDataMessage.AdoptField(field)
+		}
+	}
+
+	// Remove the Keys, the event will add them
+	for _, field := range stateKeyFields {
+		stateMessage.RemoveField(field)
+	}
+
+	keysMessage := file.NewMessage(keysName, int(psm.state.indexInParent))
+
+	proto.SetExtension(keysMessage.Descriptor.Options, psm_pb.E_Psm, &psm_pb.PSMOptions{
+		Name: psm.name,
+	})
+
+	for _, field := range stateKeysInEvent {
+		keysMessage.AdoptField(field)
+
+		proto.ClearExtension(field.Descriptor.Options, psm_pb.E_EventField)
+		proto.SetExtension(field.Descriptor.Options, psm_pb.E_Field, &psm_pb.FieldOptions{
+			PrimaryKey: true,
+		})
+	}
+
+	for _, field := range miscEventFields {
+		keysMessage.AdoptField(field)
+		proto.ClearExtension(field.Descriptor.Options, psm_pb.E_EventField)
+	}
+
+	eventMessage.RemoveField(metadataField)
+
+	eventMessage.AddFieldDescriptor(&descriptorpb.FieldDescriptorProto{
+		Name:     proto.String("metadata"),
+		Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+		TypeName: proto.String(".psm.state.v1.EventMetadata"),
+	})
+
+	eventMessage.AddFieldDescriptor(&descriptorpb.FieldDescriptorProto{
+		Name:     proto.String("keys"),
+		Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+		TypeName: proto.String(fmt.Sprintf(".%s.%s", file.Package(), keysName)),
+	})
+
+	// put it at the end
+	eventMessage.AdoptField(eventField)
+
+	for _, field := range eventMessage.Fields() {
+		if field.Descriptor.Options == nil {
+			field.Descriptor.Options = &descriptorpb.FieldOptions{}
+		}
+		proto.SetExtension(field.Descriptor.Options, validate.E_Field, &validate.FieldConstraints{
+			Required: true,
+		})
+	}
+
+	stateMessage.AddFieldDescriptor(&descriptorpb.FieldDescriptorProto{
+		Name:     proto.String("metadata"),
+		Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+		TypeName: proto.String("psm.state.v1.StateMetadata"),
+	})
+
+	stateMessage.AddFieldDescriptor(&descriptorpb.FieldDescriptorProto{
+		Name:     proto.String("keys"),
+		Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+		TypeName: proto.String(fmt.Sprintf(".%s.%s", file.Package(), keysName)),
+	})
+
+	stateMessage.AdoptField(stateStatusField)
+
+	stateMessage.AddFieldDescriptor(&descriptorpb.FieldDescriptorProto{
+		Name:     proto.String("data"),
+		Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+		TypeName: proto.String(dataName),
+	})
+
+	for _, field := range stateMessage.Fields() {
+		if field.Descriptor.Options == nil {
+			field.Descriptor.Options = &descriptorpb.FieldOptions{}
+		}
+		proto.SetExtension(field.Descriptor.Options, validate.E_Field, &validate.FieldConstraints{
+			Required: true,
+		})
+	}
+
+	file.Debug()
+
+	return nil
+}
