@@ -17,7 +17,19 @@ func main() {
 	cmdGroup := commander.NewCommandSet()
 
 	cmdGroup.Add("fmt", commander.NewCommand(runFmt))
+	cmdGroup.Add("nop", commander.NewCommand(runNop))
 	cmdGroup.RunMain("prototool", Version)
+}
+
+func runNop(ctx context.Context, cfg struct {
+	SourceDir string `flag:"dir" default:"."`
+}) error {
+	_, err := protosrc.ReadImageFromSourceDir(ctx, cfg.SourceDir)
+	if err != nil {
+		return fmt.Errorf("reading source %s: %w", cfg.SourceDir, err)
+	}
+
+	return nil
 }
 
 func runFmt(ctx context.Context, cfg struct {
