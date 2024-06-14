@@ -228,7 +228,8 @@ func (fm fileMap) PutFile(ctx context.Context, filename string, content []byte) 
 }
 
 func TestExampleReal(t *testing.T) {
-	img, err := protosrc.ReadImageFromSourceDir(context.Background(), "../proto/test")
+	rootDir := os.DirFS("../")
+	img, err := protosrc.ReadImageFromSourceDir(context.Background(), rootDir, "proto/test")
 	if err != nil {
 		t.Fatal(err)
 	}

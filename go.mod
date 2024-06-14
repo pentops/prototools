@@ -5,13 +5,13 @@ go 1.22.3
 require (
 	buf.build/gen/go/bufbuild/buf/grpc/go v1.3.0-20240517182809-0b7e724f50eb.3
 	buf.build/gen/go/bufbuild/buf/protocolbuffers/go v1.34.1-20240517182809-0b7e724f50eb.1
-	github.com/bufbuild/protocompile v0.13.0
+	github.com/bufbuild/protocompile v0.14.0
 	github.com/jhump/protoreflect v1.16.0
 	github.com/pentops/runner v0.0.0-20240525192419-d655233635e9
 	github.com/stretchr/testify v1.9.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20240528184218-531527333157
 	google.golang.org/grpc v1.64.0
-	google.golang.org/protobuf v1.34.1
+	google.golang.org/protobuf v1.34.2-0.20240529085009-ca837e5c658b
 	gopkg.in/yaml.v2 v2.4.0
 )
 

@@ -23,8 +23,10 @@ func main() {
 
 func runNop(ctx context.Context, cfg struct {
 	SourceDir string `flag:"dir" default:"."`
+	SubDir    string `flag:"subdir" default:"."`
 }) error {
-	_, err := protosrc.ReadImageFromSourceDir(ctx, cfg.SourceDir)
+	rootFS := os.DirFS(cfg.SourceDir)
+	_, err := protosrc.ReadImageFromSourceDir(ctx, rootFS, cfg.SubDir)
 	if err != nil {
 		return fmt.Errorf("reading source %s: %w", cfg.SourceDir, err)
 	}
@@ -34,8 +36,10 @@ func runNop(ctx context.Context, cfg struct {
 
 func runFmt(ctx context.Context, cfg struct {
 	SourceDir string `flag:"dir" default:"."`
+	SubDir    string `flag:"subdir" default:"."`
 }) error {
-	img, err := protosrc.ReadImageFromSourceDir(ctx, cfg.SourceDir)
+	rootFS := os.DirFS(cfg.SourceDir)
+	img, err := protosrc.ReadImageFromSourceDir(ctx, rootFS, cfg.SubDir)
 	if err != nil {
 		return fmt.Errorf("reading source %s: %w", cfg.SourceDir, err)
 	}

@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"strings"
 
@@ -20,44 +20,38 @@ type ParsedSource struct {
 	Dependencies []*descriptorpb.FileDescriptorProto
 }
 
-func ReadImageFromSourceDir(ctx context.Context, src string) (*ParsedSource, error) {
-	fileStat, err := os.Lstat(src)
-	if err != nil {
-		return nil, err
-	}
-	if !fileStat.IsDir() {
-		return nil, fmt.Errorf("src must be a directory")
-	}
+func ReadImageFromSourceDir(ctx context.Context, rootFS fs.FS, subPath string) (*ParsedSource, error) {
 
-	buf := NewBufCache()
-
-	extFiles, err := buf.GetDeps(ctx, src)
+	walkRoot, err := fs.Sub(rootFS, subPath)
 	if err != nil {
 		return nil, err
 	}
 
 	filenames := []string{}
 	filenameMap := map[string]struct{}{}
-	err = filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+	err = fs.WalkDir(walkRoot, ".", func(path string, info fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
 		ext := strings.ToLower(filepath.Ext(path))
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
 
 		switch ext {
 		case ".proto":
-			filenames = append(filenames, rel)
-			filenameMap[rel] = struct{}{}
+
+			filenames = append(filenames, path)
+			filenameMap[path] = struct{}{}
 			return nil
 		}
 
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	bufCache := NewBufCache()
+	extFiles, err := bufCache.GetDeps(ctx, rootFS, subPath)
 	if err != nil {
 		return nil, err
 	}
@@ -70,11 +64,10 @@ func ReadImageFromSourceDir(ctx context.Context, src string) (*ParsedSource, err
 		},
 
 		Accessor: func(filename string) (io.ReadCloser, error) {
-
 			if content, ok := extFiles[filename]; ok {
 				return io.NopCloser(bytes.NewReader(content)), nil
 			}
-			return os.Open(filepath.Join(src, filename))
+			return walkRoot.Open(filename)
 		},
 	}
 
