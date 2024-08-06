@@ -7,8 +7,8 @@ require (
 	buf.build/gen/go/bufbuild/buf/protocolbuffers/go v1.34.2-20240801225352-56ed5eaafdd5.2
 	github.com/bufbuild/protocompile v0.14.0
 	github.com/jhump/protoreflect v1.16.0
-	github.com/pentops/log.go v0.0.0-20240806063310-95e64c81229c
-	github.com/pentops/runner v0.0.0-20240806071010-e0c7d77968fc
+	github.com/pentops/log.go v0.0.0-20240806161938-2742d05b4c24
+	github.com/pentops/runner v0.0.0-20240806162317-0eb1ced9ab3d
 	github.com/stretchr/testify v1.9.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20240805194559-2c9e96a0b5d4
 	google.golang.org/grpc v1.65.0
@@ -27,7 +27,7 @@ require (
 	golang.org/x/net v0.27.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/sys v0.23.0 // indirect
-	golang.org/x/text v0.16.0 // indirect
+	golang.org/x/text v0.17.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240805194559-2c9e96a0b5d4 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
