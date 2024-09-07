@@ -111,16 +111,17 @@ func (extInd *fileBuilder) printOption(opt *optionreflect.OptionDefinition) {
 
 	switch parsed.root.FieldType {
 	case optionreflect.FieldTypeMessage:
-
 		if len(parsed.root.Children) == 0 {
 			extInd.p("option ", typeName, " = {};")
 		}
 		extInd.p("option ", typeName, " = {")
 		extInd.printOptionMessageFields(parsed.root.Children)
 		extInd.endElem("};")
+
 	case optionreflect.FieldTypeArray:
 		opener := fmt.Sprintf("option %s", typeName)
 		extInd.printOptionArray(opener, parsed.root.Children, ";")
+
 	case optionreflect.FieldTypeScalar:
 		extInd.p("option ", typeName, " = ", parsed.root.ScalarValue, ";")
 

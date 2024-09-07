@@ -131,7 +131,7 @@ func marshalSingular(fd protoreflect.FieldDescriptor, val protoreflect.Value) (s
 	case protoreflect.EnumKind:
 		num := val.Enum()
 		if desc := fd.Enum().Values().ByNumber(num); desc != nil {
-			return prototextString(string(desc.Name())), true
+			return string(desc.Name()), true
 		} else {
 			// Use numeric value if there is no enum description.
 			return strconv.FormatInt(int64(num), 10), true

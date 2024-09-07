@@ -229,14 +229,14 @@ func (fm fileMap) PutFile(ctx context.Context, filename string, content []byte) 
 
 func TestExampleReal(t *testing.T) {
 	rootDir := os.DirFS("../")
-	img, err := protosrc.ReadImageFromSourceDir(context.Background(), rootDir, "proto/test")
+	descriptors, err := protosrc.ReadImageFromSourceDir(context.Background(), rootDir, "proto/test")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	outputMap := NewFileMap()
 
-	err = PrintProtoFiles(context.Background(), outputMap, img, Options{
+	err = PrintReflect(context.Background(), outputMap, descriptors, Options{
 		OnlyFilenames: []string{"test/foo/v1/test.proto"},
 	})
 

@@ -3,15 +3,12 @@ package protosrc
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"io"
 	"io/fs"
 	"path/filepath"
 	"strings"
 
-	"github.com/bufbuild/protocompile/reporter"
-	"github.com/jhump/protoreflect/desc"
-	"github.com/jhump/protoreflect/desc/protoparse"
+	"github.com/bufbuild/protocompile"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
@@ -20,7 +17,7 @@ type ParsedSource struct {
 	Dependencies []*descriptorpb.FileDescriptorProto
 }
 
-func ReadImageFromSourceDir(ctx context.Context, rootFS fs.FS, subPath string) (*ParsedSource, error) {
+func ReadImageFromSourceDir(ctx context.Context, rootFS fs.FS, subPath string) ([]protoreflect.FileDescriptor, error) {
 
 	walkRoot, err := fs.Sub(rootFS, subPath)
 	if err != nil {
@@ -56,37 +53,36 @@ func ReadImageFromSourceDir(ctx context.Context, rootFS fs.FS, subPath string) (
 		return nil, err
 	}
 
-	parser := protoparse.Parser{
-		ImportPaths:           []string{""},
-		IncludeSourceCodeInfo: true,
-		WarningReporter: func(err reporter.ErrorWithPos) {
-			fmt.Printf("WRAN: %s", err)
-		},
-
-		Accessor: func(filename string) (io.ReadCloser, error) {
-			if content, ok := extFiles[filename]; ok {
-				return io.NopCloser(bytes.NewReader(content)), nil
-			}
-			return walkRoot.Open(filename)
-		},
-	}
-
-	customDesc, err := parser.ParseFiles(filenames...)
-	if err != nil {
-		return nil, fmt.Errorf("protoparse: %w", err)
-	}
-
-	fds := desc.ToFileDescriptorSet(customDesc...)
-
-	out := &ParsedSource{}
-
-	for _, fd := range fds.File {
-		if _, ok := filenameMap[fd.GetName()]; ok {
-			out.Files = append(out.Files, fd)
-		} else {
-			out.Dependencies = append(out.Dependencies, fd)
+	resolver := protocompile.ResolverFunc(func(filename string) (protocompile.SearchResult, error) {
+		if content, ok := extFiles[filename]; ok {
+			return protocompile.SearchResult{
+				Source: bytes.NewReader(content),
+			}, nil
 		}
+		// unclear if Source gets closed, so just parse to memory.
+		file, err := fs.ReadFile(walkRoot, filename)
+		if err != nil {
+			return protocompile.SearchResult{}, err
+		}
+		return protocompile.SearchResult{
+			Source: bytes.NewReader(file),
+		}, nil
+	})
+
+	compiler := protocompile.Compiler{
+		Resolver:       protocompile.WithStandardImports(resolver),
+		SourceInfoMode: protocompile.SourceInfoExtraComments,
 	}
 
-	return out, nil
+	desc, err := compiler.Compile(ctx, filenames...)
+	if err != nil {
+		return nil, err
+	}
+
+	descriptors := make([]protoreflect.FileDescriptor, len(desc))
+	for i, d := range desc {
+		descriptors[i] = d
+	}
+
+	return descriptors, nil
 }

@@ -5,12 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/pentops/prototools/optionreflect"
-	"github.com/pentops/prototools/protosrc"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
@@ -23,7 +24,54 @@ type FileWriter interface {
 	PutFile(ctx context.Context, path string, data []byte) error
 }
 
-func PrintProtoFiles(ctx context.Context, out FileWriter, src *protosrc.ParsedSource, opts Options) error {
+type mapResolver struct {
+	descriptors map[string]*descriptorpb.FileDescriptorProto
+	built       map[string]protoreflect.FileDescriptor
+}
+
+func (r *mapResolver) FindFileByPath(path string) (protoreflect.FileDescriptor, error) {
+	if file, ok := r.built[path]; ok {
+		return file, nil
+	}
+	if file, ok := r.descriptors[path]; ok {
+		fd, err := protodesc.NewFile(file, r)
+		if err != nil {
+			return nil, err
+		}
+		r.built[path] = fd
+		return fd, nil
+	}
+	return protoregistry.GlobalFiles.FindFileByPath(path)
+}
+
+func (r *mapResolver) FindDescriptorByName(message protoreflect.FullName) (protoreflect.Descriptor, error) {
+	return protoregistry.GlobalFiles.FindDescriptorByName(message)
+}
+
+func PrintFile(ctx context.Context, file protoreflect.FileDescriptor) (string, error) {
+	fileData, err := printFile(file, nil)
+	if err != nil {
+		return "", fmt.Errorf("in file %s: %w", file.Path(), err)
+	}
+	return string(fileData), nil
+}
+
+func PrintReflect(ctx context.Context, out FileWriter, descriptors []protoreflect.FileDescriptor, opts Options) error {
+	for _, file := range descriptors {
+		fileData, err := printFile(file, nil)
+		if err != nil {
+			return fmt.Errorf("in file %s: %w", file.Path(), err)
+		}
+
+		if err := out.PutFile(ctx, file.Path(), fileData); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func PrintProtoFiles(ctx context.Context, out FileWriter, src *descriptorpb.FileDescriptorSet, opts Options) error {
 
 	fileMap := make(map[string]struct{})
 	if len(opts.OnlyFilenames) > 0 {
@@ -31,70 +79,54 @@ func PrintProtoFiles(ctx context.Context, out FileWriter, src *protosrc.ParsedSo
 			fileMap[filename] = struct{}{}
 		}
 	} else {
-		for _, file := range src.Files {
+		for _, file := range src.File {
 			fileMap[*file.Name] = struct{}{}
 		}
 	}
 
-	descriptors, err := protodesc.NewFiles(&descriptorpb.FileDescriptorSet{
-		File: append(src.Files, src.Dependencies...),
-	})
-	if err != nil {
-		return err
+	sourceMap := make(map[string]*descriptorpb.FileDescriptorProto)
+	for _, file := range src.File {
+		sourceMap[*file.Name] = file
 	}
 
-	var walkErr error
+	resolver := &mapResolver{descriptors: sourceMap}
+	descriptors := make([]protoreflect.FileDescriptor, 0)
+	for _, file := range src.File {
+		descriptor, err := protodesc.NewFile(file, resolver)
+		if err != nil {
+			return err
+		}
+		descriptors = append(descriptors, descriptor)
+	}
 
 	foundExtensions := make([]protoreflect.ExtensionDescriptor, 0)
 
-	descriptors.RangeFiles(func(file protoreflect.FileDescriptor) bool {
+	for _, file := range descriptors {
 		for i := 0; i < file.Extensions().Len(); i++ {
 			foundExtensions = append(foundExtensions, file.Extensions().Get(i))
 		}
-		return true
-	})
+	}
 
 	extBuilder := optionreflect.NewBuilder(foundExtensions)
 
-	descriptors.RangeFiles(func(file protoreflect.FileDescriptor) bool {
+	for _, file := range descriptors {
 		if _, ok := fileMap[string(file.Path())]; !ok {
-			return true
-		}
-
-		if len(opts.PackagePrefixes) > 0 {
-			match := false
-			pkg := string(file.Package())
-			for _, prefix := range opts.PackagePrefixes {
-				if strings.HasPrefix(pkg, prefix) {
-					match = true
-					break
-				}
-			}
-			if !match {
-				return true
-			}
+			continue
 		}
 
 		fileData, err := printFile(file, extBuilder)
 		if err != nil {
-			walkErr = fmt.Errorf("in file %s: %w", file.Path(), err)
-			return false
+			return fmt.Errorf("in file %s: %w", file.Path(), err)
+
 		}
 
 		if err := out.PutFile(ctx, file.Path(), fileData); err != nil {
-			walkErr = err
-			return false
+			return err
 		}
 
-		return true
-
-	})
-	if walkErr != nil {
-		return walkErr
 	}
 
 	return nil
-
 }
 
 type fileBuffer struct {
@@ -190,6 +222,7 @@ func (fb *fileBuilder) leadingComments(loc protoreflect.SourceLocation) {
 	}
 
 	if loc.LeadingComments != "" {
+		fb.addGap()
 		parts := commentLines(loc.LeadingComments)
 		for _, part := range parts {
 			fb.p(part)
@@ -214,21 +247,31 @@ func (fb fileBuilder) indent() fileBuilder {
 func (fb *fileBuilder) printFile(ff protoreflect.FileDescriptor) ([]byte, error) {
 
 	if ff.Syntax() != protoreflect.Proto3 {
-
 		return nil, errors.New("only proto3 syntax is supported")
 	}
 
+	opening := ff.SourceLocations().ByPath(nil)
+	fb.leadingComments(opening)
 	fb.p("syntax = \"proto3\";")
 	fb.p()
 	fb.p("package ", ff.Package(), ";")
-	fb.p()
+	fb.addGap()
+
 	imports := ff.Imports()
+
+	importStrings := make([]string, 0, imports.Len())
 	for idx := 0; idx < imports.Len(); idx++ {
 		dep := imports.Get(idx)
-		// TODO: Sort
-		fb.p("import \"", dep.Path(), "\";")
+		importStrings = append(importStrings, dep.Path())
 	}
-	fb.p()
+
+	if len(importStrings) > 0 {
+		sort.Strings(importStrings)
+		for _, dep := range importStrings {
+			fb.p("import \"", dep, "\";")
+		}
+		fb.addGap()
+	}
 	// This could be manual iteration, but seemed more future-proof and
 	// quicker to write.
 	refl := ff.Options().ProtoReflect()
@@ -313,6 +356,9 @@ func fieldTypeName(field protoreflect.FieldDescriptor) (string, error) {
 		return fieldType.String(), nil
 	}
 
+	if refElement == nil {
+		return "", fmt.Errorf("field type is nil for %s", field.FullName())
+	}
 	fieldMsg := field.Parent()
 
 	return contextRefName(fieldMsg, refElement)
