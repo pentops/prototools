@@ -120,7 +120,7 @@ func (extInd *fileBuilder) printOption(opt *optionreflect.OptionDefinition) {
 
 	case optionreflect.FieldTypeArray:
 		opener := fmt.Sprintf("option %s", typeName)
-		extInd.printOptionArray(opener, parsed.root.Children, ";")
+		extInd.printOptionArray(opener+" = ", parsed.root.Children, ";")
 
 	case optionreflect.FieldTypeScalar:
 		extInd.p("option ", typeName, " = ", parsed.root.ScalarValue, ";")
@@ -145,15 +145,15 @@ func optionTypeName(opt *optionreflect.OptionDefinition) string {
 
 func (ind *fileBuilder) printOptionArray(opener string, children []optionreflect.OptionField, trailer string) {
 	if len(children) == 0 {
-		ind.p(opener, ": []", trailer)
+		ind.p(opener, "[]", trailer)
 		return
 	}
 	if len(children) == 1 && children[0].FieldType == optionreflect.FieldTypeScalar {
-		ind.p(opener, ": [", children[0].ScalarValue, "]", trailer)
+		ind.p(opener, "[", children[0].ScalarValue, "]", trailer)
 		return
 	}
 	if children[0].FieldType == optionreflect.FieldTypeMessage {
-		ind.p(opener, ": [{")
+		ind.p(opener, "[{")
 		for idx, child := range children {
 			if idx != 0 {
 				ind.p("}, {")
@@ -174,7 +174,7 @@ func (ind *fileBuilder) printOptionMessageFields(children []optionreflect.Option
 			ind2.printOptionMessageFields(child.Children)
 			ind2.endElem("}")
 		case optionreflect.FieldTypeArray:
-			ind2.printOptionArray(child.Key, child.Children, "")
+			ind2.printOptionArray(child.Key+": ", child.Children, "")
 		case optionreflect.FieldTypeScalar:
 			ind2.p(child.Key, ": ", child.ScalarValue)
 		}
@@ -220,7 +220,7 @@ func (fb *fileBuilder) printFieldStyle(name string, number int32, elem protorefl
 				extInd.printOptionMessageFields(parsed.root.Children)
 				extInd.endElem("}", trailer)
 			case optionreflect.FieldTypeArray:
-				extInd.printOptionArray(optionTypeName(opt), parsed.root.Children, trailer)
+				extInd.printOptionArray(optionTypeName(opt)+" = ", parsed.root.Children, trailer)
 			case optionreflect.FieldTypeScalar:
 				extInd.p(optionTypeName(opt), " = ", parsed.root.ScalarValue, trailer)
 			}

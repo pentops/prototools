@@ -29,6 +29,10 @@ func WalkOptionField(fieldDesc protoreflect.FieldDescriptor, val protoreflect.Va
 		return walkOptionList(fieldDesc, val.List())
 	}
 
+	if fieldDesc.IsMap() {
+		return walkOptionMap(fieldDesc, val.Map())
+	}
+
 	if fieldDesc.Kind() == protoreflect.MessageKind {
 		return walkOptionMessage(fieldDesc, val.Message())
 	}
@@ -54,12 +58,43 @@ func walkOptionList(fieldDesc protoreflect.FieldDescriptor, list protoreflect.Li
 
 	for i := 0; i < list.Len(); i++ {
 		item := list.Get(i)
-		msgChild := walkOptionScalar(fieldDesc, item)
-		out.Children = append(out.Children, msgChild)
+		scalarChild := walkOptionScalar(fieldDesc, item)
+		out.Children = append(out.Children, scalarChild)
 	}
 
 	return out
 
+}
+
+func walkOptionMap(fieldDesc protoreflect.FieldDescriptor, mp protoreflect.Map) OptionField {
+	out := OptionField{
+		FieldType: FieldTypeArray,
+		Key:       string(fieldDesc.Name()),
+		Children:  make([]OptionField, 0, mp.Len()),
+	}
+
+	if fieldDesc.MapValue().Kind() == protoreflect.MessageKind {
+		panic("map value is message, not supported")
+	}
+
+	mp.Range(func(key protoreflect.MapKey, val protoreflect.Value) bool {
+		mapVal := walkOptionScalar(fieldDesc.MapValue(), val)
+		keyVal := walkOptionScalar(fieldDesc.MapKey(), key.Value())
+		mapVal.Key = "value"
+		keyVal.Key = "key"
+
+		kvChild := OptionField{
+			FieldType: FieldTypeMessage,
+			Children: []OptionField{
+				keyVal,
+				mapVal,
+			},
+		}
+		out.Children = append(out.Children, kvChild)
+		return true
+	})
+
+	return out
 }
 
 func walkOptionMessage(fieldDesc protoreflect.FieldDescriptor, msgVal protoreflect.Message) OptionField {

@@ -45,6 +45,11 @@ func (opt *OptionDefinition) Simplify(maxDepth int) {
 		//break
 	}
 
+	if encoderDesc.IsList() || encoderDesc.IsMap() {
+		// Can't walk lists or maps.
+		return
+	}
+
 	encoderMessageDesc := encoderDesc.Message()
 	encoderMessageVal := encoderVal.Message()
 	descFields := encoderMessageDesc.Fields()
@@ -63,6 +68,12 @@ func (opt *OptionDefinition) Simplify(maxDepth int) {
 	}
 
 	field := definedFields[0]
+	if field.IsMap() || field.IsList() {
+		// Maps or lists begin with '[', there does not appear to be a syntax like
+		// `(foo.bar).thing = [`
+		// so we can't simplify the message *containing* the list.
+		return
+	}
 
 	opt.SubPath = append(opt.SubPath, string(field.Name()))
 	opt.Desc = field
