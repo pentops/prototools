@@ -70,6 +70,7 @@ func parseOption(opt *optionreflect.OptionDefinition) parsedOption {
 		}
 		return parsed
 	case optionreflect.FieldTypeArray:
+
 		if len(root.Children) == 0 {
 			parsed.inlineString = proto.String("[]")
 			return parsed
@@ -163,6 +164,16 @@ func (ind *fileBuilder) printOptionArray(opener string, children []optionreflect
 		ind.endElem("}]", trailer)
 		return
 	}
+	ind.p(opener, "[")
+	ind2 := ind.indent()
+	for idx, child := range children {
+		lineTrail := ""
+		if idx != len(children)-1 {
+			lineTrail = ","
+		}
+		ind2.p(child.ScalarValue, lineTrail)
+	}
+	ind.endElem("]", trailer)
 }
 
 func (ind *fileBuilder) printOptionMessageFields(children []optionreflect.OptionField) {
