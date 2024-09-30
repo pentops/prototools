@@ -2,6 +2,7 @@ package protoprint
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/pentops/prototools/optionreflect"
@@ -15,12 +16,26 @@ var maxExtDepth = map[protoreflect.FullName]int{
 }
 
 type parsedOption struct {
-	def          *optionreflect.OptionDefinition
-	root         optionreflect.OptionField
-	inline       bool
-	inlineString *string
+	def           *optionreflect.OptionDefinition
+	root          optionreflect.OptionField
+	inline        bool
+	inlineString  *string
+	qualifiedName string
 }
 
+func optionFullName(opt *optionreflect.OptionDefinition) string {
+
+	name, err := contextRefName(opt.Context, opt.RootType)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	if len(opt.SubPath) == 0 {
+		return fmt.Sprintf("(%s)", name)
+	}
+
+	return fmt.Sprintf("(%s).%s", name, strings.Join(opt.SubPath, "."))
+}
 func parseOption(opt *optionreflect.OptionDefinition) parsedOption {
 
 	maxDepth, ok := maxExtDepth[opt.Desc.FullName()]
@@ -46,9 +61,10 @@ func parseOption(opt *optionreflect.OptionDefinition) parsedOption {
 	inlineWithParent := opt.SourceLocation == nil || opt.SourceLocation.InLineWithParent
 
 	parsed := parsedOption{
-		root:   root,
-		def:    opt,
-		inline: inlineWithParent,
+		root:          root,
+		def:           opt,
+		inline:        inlineWithParent,
+		qualifiedName: optionFullName(opt),
 	}
 
 	if !sourceSingleLine {
@@ -97,6 +113,17 @@ func (fb *fileBuilder) optionsFor(thing protoreflect.Descriptor) ([]parsedOption
 	for _, opt := range options {
 		parsed = append(parsed, parseOption(opt))
 	}
+
+	slices.SortFunc(parsed, func(i, j parsedOption) int {
+		if i.qualifiedName < j.qualifiedName {
+			return -1
+		}
+		if i.qualifiedName > j.qualifiedName {
+			return 1
+		}
+		return 0
+	})
+
 	return parsed, nil
 }
 
@@ -104,7 +131,7 @@ func (extInd *fileBuilder) printOption(opt *optionreflect.OptionDefinition) {
 
 	parsed := parseOption(opt)
 
-	typeName := optionTypeName(opt)
+	typeName := parsed.qualifiedName
 	if parsed.inlineString != nil {
 		extInd.p("option ", typeName, " = ", *parsed.inlineString, ";")
 		return
@@ -128,20 +155,6 @@ func (extInd *fileBuilder) printOption(opt *optionreflect.OptionDefinition) {
 
 	}
 
-}
-
-func optionTypeName(opt *optionreflect.OptionDefinition) string {
-
-	name, err := contextRefName(opt.Context, opt.RootType)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	if len(opt.SubPath) == 0 {
-		return fmt.Sprintf("(%s)", name)
-	}
-
-	return fmt.Sprintf("(%s).%s", name, strings.Join(opt.SubPath, "."))
 }
 
 func (ind *fileBuilder) printOptionArray(opener string, children []optionreflect.OptionField, trailer string) {
@@ -208,7 +221,7 @@ func (fb *fileBuilder) printFieldStyle(name string, number int32, elem protorefl
 		fb.p(name, " = ", number, ";", inlineComment(srcLoc))
 	} else if len(options) == 1 && options[0].inline && options[0].inlineString != nil {
 		opt := options[0]
-		fb.p(name, " = ", number, " [", optionTypeName(opt.def), " = ", *opt.inlineString, "];", inlineComment(srcLoc))
+		fb.p(name, " = ", number, " [", opt.qualifiedName, " = ", *opt.inlineString, "];", inlineComment(srcLoc))
 	} else {
 		fb.p(name, " = ", number, " [", inlineComment(srcLoc))
 		extInd := fb.indent()
@@ -217,23 +230,22 @@ func (fb *fileBuilder) printFieldStyle(name string, number int32, elem protorefl
 			if idx == len(options)-1 {
 				trailer = ""
 			}
-			opt := parsed.def
 			val := parsed.root
 
 			if parsed.inlineString != nil {
-				extInd.p(optionTypeName(opt), " = ", *parsed.inlineString, trailer)
+				extInd.p(parsed.qualifiedName, " = ", *parsed.inlineString, trailer)
 				continue
 			}
 
 			switch val.FieldType {
 			case optionreflect.FieldTypeMessage:
-				extInd.p(optionTypeName(opt), " = {")
+				extInd.p(parsed.qualifiedName, " = {")
 				extInd.printOptionMessageFields(parsed.root.Children)
 				extInd.endElem("}", trailer)
 			case optionreflect.FieldTypeArray:
-				extInd.printOptionArray(optionTypeName(opt)+" = ", parsed.root.Children, trailer)
+				extInd.printOptionArray(parsed.qualifiedName+" = ", parsed.root.Children, trailer)
 			case optionreflect.FieldTypeScalar:
-				extInd.p(optionTypeName(opt), " = ", parsed.root.ScalarValue, trailer)
+				extInd.p(parsed.qualifiedName, " = ", parsed.root.ScalarValue, trailer)
 			}
 		}
 		fb.endElem("];", inlineComment(srcLoc))
